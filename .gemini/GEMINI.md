@@ -1,0 +1,11 @@
+## Gemini Added Memories
+- **Project Status:** The core AI email filtering logic is complete. We are now implementing an automated email ingestion pipeline.
+- **Current Goal:** Integrate the application with the Gmail API using Push Notifications to process emails in real-time.
+- **Guiding Document:** A complete, step-by-step plan has been created and is located in `gmail_push_integration.md`.
+- **The Plan:**
+    - **Phase 1:** Configure Google Cloud Pub/Sub to receive notifications from Gmail.
+    - **Phase 2:** Implement a webhook endpoint in FastAPI to listen for and process these notifications.
+    - **Phase 3:** Activate the system by connecting Gmail to our Pub/Sub topic via a `watch()` call.
+    - **Phase 4:** Create an API endpoint to display the processed emails and their scores from the database.
+- **Next Step:** Begin implementation of Phase 1 of the plan outlined in `gmail_push_integration.md`.
+- **My Role:** To guide you through the implementation of the real-time email processing pipeline.
