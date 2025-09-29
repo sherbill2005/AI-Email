@@ -43,17 +43,24 @@ class GmailClient:
             email_content.append(snippet)
         return email_content
 
-    def get_latest_message_id_from_history(self, start_history_id: str) -> str | None:
+    def get_new_message_ids_from_history(self, start_history_id: str) -> list[str]:
         """
-        Fetches the latest message ID from history events since start_history_id.
+        Fetches all new message IDs from history events since start_history_id.
         """
         history_events = self._get_history_events(start_history_id)
-        
+        message_ids = []
+
+        if not history_events:
+            return []
+
         for event in history_events:
             if 'messagesAdded' in event:
-                # Assuming the first message in the list is the newest
-                return event['messagesAdded'][0]['message']['id']
-        return None
+                for message_added in event['messagesAdded']:
+                    if 'message' in message_added and 'id' in message_added['message']:
+                        message_ids.append(message_added['message']['id'])
+        
+        # The history records are returned oldest first. We want to process the newest first.
+        return list(reversed(message_ids))
 
     def _get_history_events(self, start_history_id: str) -> list[dict]:
         """

@@ -15,7 +15,11 @@ class GoogleAuthHandler:
 
     def get_credentials(self) -> Credentials:
         if os.path.exists(self.token_path):
-            self.creds = Credentials.from_authorized_user_file(self.token_path, SCOPES)
+            try:
+                self.creds = Credentials.from_authorized_user_file(self.token_path, SCOPES)
+            except Exception as e:
+                print(f"Error reading or parsing token file: {e}")
+                self.creds = None
 
         if not self.creds or not self.creds.valid:
             if self.creds and self.creds.expired and self.creds.refresh_token:

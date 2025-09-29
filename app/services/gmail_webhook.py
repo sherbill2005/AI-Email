@@ -15,11 +15,9 @@ class GmailWebhookHandler:
         try:
             print("\n--- [Webhook Handler] Receiving Notification ---")
             self._decode_and_validate_message()
-            print(f"[Webhook Handler] Decoded message: {self.message_json}")
 
             history_id = self.message_json.get("historyId")
             email_address = self.message_json.get("emailAddress")
-            print(f"[Webhook Handler] Extracted History ID: {history_id} for {email_address}")
 
             # Delegate processing to the Orchestrator
             orchestrator = EmailProcessingOrchestrator()

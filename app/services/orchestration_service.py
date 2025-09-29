@@ -5,15 +5,14 @@ from app.services.rules_services import RuleService
 from app.services.filtering_service import EmailFilteringService
 from app.db_utils.mongo import db
 from app.models.user_model import User
+from app.models.rules_model import RuleModel
 
 class EmailProcessingOrchestrator:
     def __init__(self):
-        # Services for Gmail interaction and summarization
         self.auth_handler = GoogleAuthHandler()
         self.gmail_client = GmailClient(self.auth_handler)
         self.ai_summarizer = LangchainSummarizer()
 
-        # Services for email filtering
         self.rule_service = RuleService()
         self.zero_shot_classifier = ZeroShotClassifier()
         self.email_filtering_service = EmailFilteringService(
@@ -30,15 +29,8 @@ class EmailProcessingOrchestrator:
         return summary
 
     def process_incoming_email_notification(self, history_id: str, email_address: str):
-        """
-        Processes an incoming Gmail push notification.
-        Fetches the email, filters it, and saves it to the database if rules match.
-        This process is designed to be idempotent.
-        """
         print("\n--- [Orchestrator] Starting Email Notification Processing ---")
-        print(f"[Orchestrator] Processing history ID: {history_id} for {email_address}")
 
-        # 0. Fetch user and last processed history ID
         user_doc = db.users.find_one({"email": email_address})
         if not user_doc:
             print(f"[Orchestrator] User {email_address} not found. Skipping processing.")
@@ -52,71 +44,56 @@ class EmailProcessingOrchestrator:
         )
         last_processed_history_id = user.last_processed_history_id
 
-        # Idempotency Check: Only process if the new history ID is greater than the last one.
         if last_processed_history_id and int(history_id) <= int(last_processed_history_id):
             print(f"[Orchestrator] Received old or duplicate history ID {history_id}. Current is {last_processed_history_id}. Skipping.")
             return
 
-        # Handle first-time notification for a user
         if last_processed_history_id is None:
             db.users.update_one({"email": email_address}, {"$set": {"last_processed_history_id": history_id}})
-            print(f"[Orchestrator] First notification for {email_address}. Storing history ID {history_id} to start processing from the next email.")
+            print(f"[Orchestrator] First notification for {email_address}. Storing history ID {history_id}.")
             return
 
-        # 1. Get new messages since the last processed history ID
-        new_message_id = self.gmail_client.get_latest_message_id_from_history(last_processed_history_id)
-        if not new_message_id:
-            print(f"[Orchestrator] No new messages found for history ID: {history_id}. This might be an out-of-order notification. Skipping.")
-            # We DO NOT update the history ID here to prevent rewinding.
+        new_message_ids = self.gmail_client.get_new_message_ids_from_history(last_processed_history_id)
+        if not new_message_ids:
+            print(f"[Orchestrator] No new messages found since history ID {last_processed_history_id}. Acknowledging notification.")
+            db.users.update_one({"email": email_address}, {"$set": {"last_processed_history_id": history_id}})
             return
 
-        # 2. Fetch the full email content by its ID.
-        message_content = self.gmail_client.get_email_by_id(new_message_id)
-        if not message_content:
-            print(f"[Orchestrator] Could not fetch content for message ID: {new_message_id}. Skipping.")
-            return
-
-        # 3. Parse the details from the raw email data.
-        snippet = message_content.get('snippet', '')
-        headers = message_content.get('payload', {}).get('headers', [])
-        subject = next((h['value'] for h in headers if h['name'] == 'Subject'), "(No Subject)")
-        sender = next((h['value'] for h in headers if h['name'] == 'From'), "(No Sender)")
-
-        # 4. Get rules and filter email
         all_rules = self.rule_service.get_all_rules()
-        if not all_rules:
-            print("[Orchestrator] No rules found in the database. Skipping filtering.")
-            scores = []
-        else:
-            rule_ids_to_apply = [str(rule.id) for rule in all_rules]
-            email_full_content = f"Subject: {subject}\n\n{snippet}"
-            scores = self.email_filtering_service.filter_emails_by_rules(email_full_content, rule_ids_to_apply)
 
-        # 5. Prepare data for database insertion and save if rules matched.
-        processed_email_data = {
-            "message_id": new_message_id,
-            "sender": sender,
-            "subject": subject,
-            "snippet": snippet,
-            "scores": scores
-        }
+        for message_id in new_message_ids:
+            message_content = self.gmail_client.get_email_by_id(message_id)
+            if not message_content:
+                print(f"[Orchestrator] Could not fetch content for message ID: {message_id}. Skipping.")
+                continue
 
-        matched_any_rule = any(score['classification'] == 'Matched' for score in scores)
+            snippet = message_content.get('snippet', '')
+            headers = message_content.get('payload', {}).get('headers', [])
+            subject = next((h['value'] for h in headers if h['name'] == 'Subject'), "(No Subject)")
+            sender = next((h['value'] for h in headers if h['name'] == 'From'), "(No Sender)")
 
-        if matched_any_rule:
-            print("[Orchestrator] Saving processed email to MongoDB (at least one rule matched)...")
-            db.processed_emails.insert_one(processed_email_data)
-            print("[Orchestrator] Processed email saved to MongoDB.")
-        else:
-            print("[Orchestrator] No rules matched. Skipping saving to MongoDB.")
+            if not all_rules:
+                final_aggregated_score = 0.0
+            else:
+                email_full_content = f"Subject: {subject}\n\n{snippet}"
+                final_aggregated_score = self.email_filtering_service.filter_emails_by_rules(email_full_content, all_rules)
 
-        # 6. Update user's last processed history ID to the current one
+            processed_email_data = {
+                "message_id": message_id,
+                "sender": sender,
+                "subject": subject,
+                "snippet": snippet,
+                "aggregated_score": final_aggregated_score
+            }
+
+            print(f"[Orchestrator] Processing Email | Subject: '{subject}' | Score: {final_aggregated_score:.2f}%")
+
+            storage_threshold = 50.0
+            if final_aggregated_score >= storage_threshold:
+                print(f"  - Action: Saving to database.")
+                db.processed_emails.insert_one(processed_email_data)
+            else:
+                print(f"  - Action: Skipping (score below {storage_threshold}%).")
+
         db.users.update_one({"email": email_address}, {"$set": {"last_processed_history_id": history_id}})
-        print(f"[Orchestrator] Updated last_processed_history_id for {email_address} to {history_id}")
-
-        print("--- [Orchestrator] Email Processing Complete ---")
-        print(f"  Sender: {sender}")
-        print(f"  Subject: {subject}")
-        print(f"  Snippet: {snippet[:100]}...")
-        print(f"  Scores: {scores}")
-        print("------------------------------------")
+        print("--- [Orchestrator] Finished Processing Notification ---")
