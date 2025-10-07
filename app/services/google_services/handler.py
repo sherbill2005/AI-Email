@@ -2,13 +2,12 @@
 import json
 
 from googleapiclient.discovery import build
-from app.services.google_services.auth_handler import GoogleAuthHandler
+from google.oauth2.credentials import Credentials
 
 
 class GmailClient:
-    def __init__(self, auth_handler: GoogleAuthHandler):
-        self.auth = auth_handler
-        self.creds = self.auth.get_credentials()
+    def __init__(self, credentials: Credentials):
+        self.creds = credentials
         self.service = build('gmail', 'v1', credentials=self.creds)
 
     def fetch_latest_email_subject(self, max_results: int = 10) -> list[str]:

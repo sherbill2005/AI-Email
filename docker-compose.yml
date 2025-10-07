@@ -1,4 +1,4 @@
-version: "3.8"
+
 
 services:
   api:
@@ -9,6 +9,8 @@ services:
       - mongodb
     env_file:
       - .env
+    volumes:
+      - ./token.json:/app/token.json
 
   mongodb:
     image: mongo:6

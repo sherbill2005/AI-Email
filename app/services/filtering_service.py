@@ -1,54 +1,58 @@
 from app.services.rules_services import RuleService
 from app.services.ai_model_services import ZeroShotClassifier
+from app.models.rules_model import RuleModel
+from typing import List, Dict, Optional
 
 class EmailFilteringService:
     def __init__(self, rule_service: RuleService, classifier: ZeroShotClassifier):
         self.rule_service = rule_service
         self.classifier = classifier
+        self.individual_match_threshold = 0.5
 
-    def filter_emails_by_rules(self, email_content: str, rule_ids: list[str], threshold: float = 0.8) -> list[dict]:
-        """
-        Filters a single email against a list of specified rules, returning scores for each.
+    def filter_emails_by_rules(self, email_content: str, rules: List[RuleModel]) -> float:
+        overall_score = 0.0
+        
+        for rule in rules:
+            branch_score, high_exists_in_branch, high_matched_in_branch = self._evaluate_rule_branch(email_content, rule)
+            
+            overall_score += branch_score 
 
-        Args:
-            email_content: The text content of the email to filter.
-            rule_ids: A list of rule IDs to filter against.
-            threshold: The confidence score threshold for a rule to be considered 'matched'.
+        return min(overall_score, 100.0)
 
-        Returns:
-            A list of dictionaries, each containing rule_name, score, and classification.
-        """
-        # Step 1: Get rule descriptions from the database
-        rules_data = []
-        for rule_id in rule_ids:
-            rule = self.rule_service.get_rule_by_id(rule_id)
-            if rule:
-                rules_data.append({"id": rule.id, "name": rule.name, "description": rule.description})
+    def _evaluate_rule_branch(self, email_content: str, rule: RuleModel) -> (float, bool, bool):
+        score_from_this_rule = 0.0
+        high_priority_exists_in_branch = False
+        high_priority_matched_in_branch = False
 
-        if not rules_data:
-            return []
+        classification_results = self.classifier.classify(email_content, [rule.description])
+        
+        if classification_results and classification_results.get('scores') and len(classification_results['scores']) > 0:
+            match_score = classification_results['scores'][0]
+            is_matched = match_score >= self.individual_match_threshold
 
-        labels = [rule["description"] for rule in rules_data]
+            if rule.priority == "High":
+                high_priority_exists_in_branch = True
+                if is_matched:
+                    high_priority_matched_in_branch = True
+                    score_from_this_rule += 30.0
+                else: 
+                    pass
+            elif rule.priority == "Low":
+                if is_matched:
+                    score_from_this_rule += 20.0
+                else:
+                    pass
+            
+        total_branch_score = score_from_this_rule 
 
-        # Step 2: Use the classifier to get scores
-        classification_results = self.classifier.classify(email_content, labels)
+        if rule.sub_rules:
+            for sub_rule in rule.sub_rules:
+                sub_score, sub_high_exists, sub_high_matched = self._evaluate_rule_branch(email_content, sub_rule)
+                total_branch_score += sub_score 
+                
+                if sub_high_exists:
+                    high_priority_exists_in_branch = True
+                if sub_high_matched:
+                    high_priority_matched_in_branch = True
 
-        if not classification_results or not classification_results.get('scores'):
-            return []
-
-        # Step 3: Format results for all rules
-        formatted_scores = []
-        for i, label_description in enumerate(classification_results['labels']):
-            score = classification_results['scores'][i]
-            # Find the original rule name based on description
-            original_rule = next((r for r in rules_data if r["description"] == label_description), None)
-            rule_name = original_rule["name"] if original_rule else label_description # Fallback
-
-            classification = "Matched" if score >= threshold else "Not Matched"
-
-            formatted_scores.append({
-                "rule_name": rule_name,
-                "score": round(float(score), 4), # Ensure float and round for consistency
-                "classification": classification
-            })
-        return formatted_scores
+        return total_branch_score, high_priority_exists_in_branch, high_priority_matched_in_branch

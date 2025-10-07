@@ -5,6 +5,5 @@ __pycache__/
 *.pyd
 .vscode/
 ../.idea/
-token.json
-credentials.json
+
 .venv/

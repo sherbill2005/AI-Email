@@ -1,10 +1,24 @@
+# Byte-compiled / optimized / DLL files
 __pycache__/
-.env
 *.pyc
 *.pyo
 *.pyd
+
+# Environment variables
+.env
+frontend/.env
+
+# IDE / Editor directories
 .vscode/
 .idea/
+
+# Auth token files
 token.json
 credentials.json
+
+# Virtual Environments
 .venv/
+.venv312/
+
+# Other
+errors/

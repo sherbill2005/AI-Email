@@ -4,6 +4,12 @@ WORKDIR /app
 
 COPY requirements .
 RUN pip install --no-cache-dir -r requirements
+
+# Copy credential files
+COPY credentials.json .
+
+
+
 COPY . .
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "80"]

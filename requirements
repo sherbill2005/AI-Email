@@ -9,9 +9,15 @@ google-api-python-client
 google-auth
 google-auth-oauthlib
 pydantic
+pydantic-settings
 
 # Pinning ML library versions for compatibility
 torch
 transformers==4.41.2
 langchain==0.2.1
 langchain-huggingface==0.0.3
+
+# Dependencies for Authentication
+python-jose[cryptography]
+httpx
+cryptography

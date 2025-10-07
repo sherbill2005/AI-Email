@@ -9,10 +9,7 @@ from app.models.rules_model import RuleModel
 
 class EmailProcessingOrchestrator:
     def __init__(self):
-        self.auth_handler = GoogleAuthHandler()
-        self.gmail_client = GmailClient(self.auth_handler)
         self.ai_summarizer = LangchainSummarizer()
-
         self.rule_service = RuleService()
         self.zero_shot_classifier = ZeroShotClassifier()
         self.email_filtering_service = EmailFilteringService(
@@ -21,12 +18,9 @@ class EmailProcessingOrchestrator:
         )
 
     def summarize_by_index(self, email_index: int) -> str:
-        emails = self.gmail_client.fetch_latest_email_subject()
-
-        selected_email = emails[email_index]
-        summary = self.ai_summarizer.summarize_email(selected_email)
-        print(summary)
-        return summary
+        # This method is now broken as it relies on a single-user gmail_client
+        # It needs to be updated to be user-aware
+        raise NotImplementedError("summarize_by_index is not implemented for multi-user yet")
 
     def process_incoming_email_notification(self, history_id: str, email_address: str):
         print("\n--- [Orchestrator] Starting Email Notification Processing ---")
@@ -40,8 +34,18 @@ class EmailProcessingOrchestrator:
             email=user_doc['email'],
             name=user_doc.get('name'),
             last_processed_history_id=user_doc.get('last_processed_history_id'),
+            encrypted_google_refresh_token=user_doc.get('encrypted_google_refresh_token'),
             _id=user_doc.get('_id')
         )
+
+        if not user.encrypted_google_refresh_token:
+            print(f"[Orchestrator] User {email_address} has no refresh token. Skipping processing.")
+            return
+
+        auth_handler = GoogleAuthHandler()
+        credentials = auth_handler.get_credentials_from_refresh_token(user.encrypted_google_refresh_token)
+        gmail_client = GmailClient(credentials)
+
         last_processed_history_id = user.last_processed_history_id
 
         if last_processed_history_id and int(history_id) <= int(last_processed_history_id):
@@ -53,16 +57,16 @@ class EmailProcessingOrchestrator:
             print(f"[Orchestrator] First notification for {email_address}. Storing history ID {history_id}.")
             return
 
-        new_message_ids = self.gmail_client.get_new_message_ids_from_history(last_processed_history_id)
+        new_message_ids = gmail_client.get_new_message_ids_from_history(last_processed_history_id)
         if not new_message_ids:
             print(f"[Orchestrator] No new messages found since history ID {last_processed_history_id}. Acknowledging notification.")
             db.users.update_one({"email": email_address}, {"$set": {"last_processed_history_id": history_id}})
             return
 
-        all_rules = self.rule_service.get_all_rules()
+        all_rules = self.rule_service.get_all_rules(user_id=str(user._id))
 
         for message_id in new_message_ids:
-            message_content = self.gmail_client.get_email_by_id(message_id)
+            message_content = gmail_client.get_email_by_id(message_id)
             if not message_content:
                 print(f"[Orchestrator] Could not fetch content for message ID: {message_id}. Skipping.")
                 continue
@@ -79,6 +83,7 @@ class EmailProcessingOrchestrator:
                 final_aggregated_score = self.email_filtering_service.filter_emails_by_rules(email_full_content, all_rules)
 
             processed_email_data = {
+                "user_id": str(user._id),
                 "message_id": message_id,
                 "sender": sender,
                 "subject": subject,

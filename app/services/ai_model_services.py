@@ -1,5 +1,3 @@
-# app/services/ai_model_services.py
-
 from transformers import pipeline
 from langchain_huggingface import HuggingFacePipeline
 from langchain.prompts import PromptTemplate
@@ -27,7 +25,6 @@ class LangchainSummarizer:
 
 
 
-
 class ZeroShotClassifier:
     def __init__(self):
         classification_pipeline = pipeline(
@@ -41,7 +38,9 @@ class ZeroShotClassifier:
     def classify(self , email_content: str, labels: list[str]):
         if not email_content or not labels:
             return {'labels': [], 'scores':[]}
+        
         results = self.classifier.pipeline(email_content, candidate_labels=labels)
+        
         return {'labels': results['labels'], 'scores': results['scores']}
 if __name__ == "__main__":
     handler = LangchainSummarizer()

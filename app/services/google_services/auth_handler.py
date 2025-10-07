@@ -1,34 +1,31 @@
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-import os
 from google.auth.transport.requests import Request
-from pathlib import Path
+from app.services.auth_services import decrypt_token
+from app.core.config import settings
+import google.oauth2.credentials
+import google.auth.transport.requests
 
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 
-BASE_DIR = Path(__file__).resolve().parents[3]
 class GoogleAuthHandler:
-    def __init__(self, creds_path: str = BASE_DIR / "credentials.json", token_path: str = BASE_DIR / "token.json"):
-        self.creds_path = creds_path
-        self.token_path = token_path
-        self.creds = None
+    def __init__(self):
+        pass
 
-    def get_credentials(self) -> Credentials:
-        if os.path.exists(self.token_path):
-            try:
-                self.creds = Credentials.from_authorized_user_file(self.token_path, SCOPES)
-            except Exception as e:
-                print(f"Error reading or parsing token file: {e}")
-                self.creds = None
+    def get_credentials_from_refresh_token(self, encrypted_refresh_token: str) -> Credentials:
+        refresh_token = decrypt_token(encrypted_refresh_token)
 
-        if not self.creds or not self.creds.valid:
-            if self.creds and self.creds.expired and self.creds.refresh_token:
-                self.creds.refresh(Request())
-            else:
-                flow = InstalledAppFlow.from_client_secrets_file(self.creds_path, SCOPES)
-                self.creds = flow.run_local_server(port=0)
+        creds = google.oauth2.credentials.Credentials(
+            None,
+            refresh_token=refresh_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=settings.GOOGLE_CLIENT_ID,
+            client_secret=settings.GOOGLE_CLIENT_SECRET,
+            scopes=SCOPES
+        )
 
-            with open(self.token_path, 'w') as token:
-                token.write(self.creds.to_json())
+        # If the credentials are not valid (e.g., expired access token), refresh them.
+        if not creds.valid:
+            if creds.expired and creds.refresh_token:
+                creds.refresh(google.auth.transport.requests.Request())
 
-        return self.creds
+        return creds
